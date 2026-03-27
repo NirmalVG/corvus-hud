@@ -1,6 +1,8 @@
 "use client"
 
 import { useCamera } from "@/hooks/useCamera"
+import { useDetection } from "@/hooks/useDetection"
+import { useHudStore } from "@/store/hudStore"
 import { ScanlineOverlay } from "@/components/overlays/ScanlineOverlay"
 import { GridOverlay } from "@/components/overlays/GridOverlay"
 import { CornerBrackets } from "@/components/hud/CornerBrackets"
@@ -8,16 +10,18 @@ import { HudTopLeft } from "@/components/hud/HudTopLeft"
 import { HudTopRight } from "@/components/hud/HudTopRight"
 import { HudReticle } from "@/components/hud/HudReticle"
 import { HudBottomBar } from "@/components/hud/HudBottomBar"
+import { ModelLoadingOverlay } from "@/components/hud/ModelLoadingOverlay"
 
 export function CameraFeed() {
   const { videoRef, canvasRef, status, error } = useCamera()
+  useDetection(videoRef, canvasRef)
+
+  const { detections, fps } = useHudStore()
 
   return (
     <div className="relative w-full h-dvh bg-hud-dark overflow-hidden">
-      {/* Layer 0 — grid */}
       <GridOverlay />
 
-      {/* Layer 1 — camera */}
       <video
         ref={videoRef}
         className="absolute inset-0 w-full h-full object-cover"
@@ -26,15 +30,15 @@ export function CameraFeed() {
         aria-label="Camera feed"
       />
 
-      {/* Layer 2 — canvas for bounding boxes (Week 2) */}
-      <canvas ref={canvasRef} className="absolute inset-0 w-full h-full" />
+      <canvas
+        ref={canvasRef}
+        className="absolute inset-0 w-full h-full"
+        style={{ objectFit: "cover" }}
+      />
 
-      {/* Layer 3 — scanlines */}
       <ScanlineOverlay />
 
-      {/* Layer 4 — HUD panels */}
       <div className="absolute inset-0 z-20 pointer-events-none">
-        {/* Top row */}
         <div className="absolute top-6 left-4">
           <HudTopLeft />
         </div>
@@ -42,14 +46,18 @@ export function CameraFeed() {
           <HudTopRight />
         </div>
 
-        {/* Center reticle */}
-        <HudReticle objectCount={0} />
+        <HudReticle objectCount={detections.length} />
 
-        {/* Bottom bar */}
-        <HudBottomBar fps={60} objectCount={4} battery={88} temperature={22} />
+        <HudBottomBar
+          fps={fps}
+          objectCount={detections.length}
+          battery={88}
+          temperature={22}
+        />
       </div>
 
-      {/* Error / permission states */}
+      <ModelLoadingOverlay />
+
       {status === "requesting" && (
         <div className="absolute inset-0 z-30 flex items-center justify-center">
           <div className="text-center space-y-4">

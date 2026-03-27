@@ -25,17 +25,31 @@ export function useCamera(): UseCameraReturn {
       setStatus("requesting")
 
       try {
-        const stream = await navigator.mediaDevices.getUserMedia({
-          video: {
-            facingMode: "environment", // rear camera on mobile
-            width: { ideal: 1280 },
-            height: { ideal: 720 },
-          },
-          audio: false,
-        })
+        // First attempt — try exact back camera (works on mobile)
+        let stream: MediaStream
+
+        try {
+          stream = await navigator.mediaDevices.getUserMedia({
+            video: {
+              facingMode: { exact: "environment" },
+              width: { ideal: 1280 },
+              height: { ideal: 720 },
+            },
+            audio: false,
+          })
+        } catch {
+          // exact 'environment' failed — desktop or device with no back camera
+          // fall back to any available camera
+          stream = await navigator.mediaDevices.getUserMedia({
+            video: {
+              width: { ideal: 1280 },
+              height: { ideal: 720 },
+            },
+            audio: false,
+          })
+        }
 
         if (cancelled) {
-          // component unmounted while we were waiting for permission
           stream.getTracks().forEach((t) => t.stop())
           return
         }
