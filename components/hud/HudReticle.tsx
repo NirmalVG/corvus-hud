@@ -1,15 +1,27 @@
 "use client"
 
+import { BootStage } from "@/hooks/useBootSequence"
+
 interface HudReticleProps {
   objectCount?: number
+  bootStage?: BootStage
 }
 
-export function HudReticle({ objectCount = 0 }: HudReticleProps) {
-  // Reticle scales with viewport: 80vw on phone, capped at 340px on large screens
+export function HudReticle({
+  objectCount = 0,
+  bootStage = "online",
+}: HudReticleProps) {
+  const visible = bootStage === "reticle" || bootStage === "online"
   const size = "min(80vw, 80vh, 340px)"
 
   return (
-    <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+    <div
+      className="absolute inset-0 flex items-center justify-center pointer-events-none"
+      style={{
+        opacity: visible ? 1 : 0,
+        transition: "opacity 0.8s ease",
+      }}
+    >
       {/* Side accent bars */}
       <div className="absolute left-0 top-1/2 -translate-y-1/2 w-6 sm:w-8 h-[3px] bg-hud-cyan" />
       <div className="absolute right-0 top-1/2 -translate-y-1/2 w-6 sm:w-8 h-[3px] bg-hud-cyan" />
@@ -38,8 +50,14 @@ export function HudReticle({ objectCount = 0 }: HudReticleProps) {
         VEL_REF
       </div>
 
-      {/* Reticle SVG — scales with viewport */}
-      <div style={{ width: size, height: size }}>
+      {/* Reticle SVG */}
+      <div
+        style={{
+          width: size,
+          height: size,
+          animation: visible ? "spin-slow 20s linear infinite" : "none",
+        }}
+      >
         <svg
           width="100%"
           height="100%"
@@ -65,7 +83,6 @@ export function HudReticle({ objectCount = 0 }: HudReticleProps) {
             strokeDasharray="3 6"
             opacity="0.25"
           />
-
           <line
             x1="170"
             y1="10"
@@ -102,9 +119,7 @@ export function HudReticle({ objectCount = 0 }: HudReticleProps) {
             strokeWidth="1.5"
             opacity="0.8"
           />
-
           <circle cx="170" cy="170" r="3" fill="#00D4FF" opacity="0.9" />
-
           {[45, 135, 225, 315].map((angle) => {
             const rad = (angle * Math.PI) / 180
             const x1 = 170 + 155 * Math.cos(rad)
@@ -133,9 +148,10 @@ export function HudReticle({ objectCount = 0 }: HudReticleProps) {
         style={{
           top: "63%",
           fontFamily: "Orbitron, sans-serif",
-          color: objectCount > 0 ? "#00D4FF" : undefined,
-          borderColor: objectCount > 0 ? "#00D4FF" : undefined,
-          textShadow: objectCount > 0 ? "0 0 10px #00D4FF" : undefined,
+          color: objectCount > 0 ? "#00D4FF" : "rgba(0,212,255,0.4)",
+          borderColor: objectCount > 0 ? "#00D4FF" : "rgba(0,212,255,0.3)",
+          textShadow: objectCount > 0 ? "0 0 10px #00D4FF" : "none",
+          transition: "all 0.3s ease",
         }}
       >
         {objectCount === 0

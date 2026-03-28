@@ -4,6 +4,8 @@ import { useCamera } from "@/hooks/useCamera"
 import { useDetection } from "@/hooks/useDetection"
 import { useLocation, useCompass } from "@/hooks/useLocation"
 import { useBattery } from "@/hooks/useBattery"
+import { useBootSequence } from "@/hooks/useBootSequence"
+import { useGlitch } from "@/hooks/useGlitch"
 import { useHudStore } from "@/store/hudStore"
 import { ScanlineOverlay } from "@/components/overlays/ScanlineOverlay"
 import { GridOverlay } from "@/components/overlays/GridOverlay"
@@ -16,19 +18,35 @@ import { ModelLoadingOverlay } from "@/components/hud/ModelLoadingOverlay"
 
 export function CameraFeed() {
   const { videoRef, canvasRef, status, error } = useCamera()
-  useDetection(videoRef, canvasRef)
+  useDetection(videoRef, canvasRef, status === "active")
   useLocation()
   useCompass()
   useBattery()
 
-  const { detections } = useHudStore()
+  const { detections, battery } = useHudStore()
+  const bootStage = useBootSequence(status === "active")
+  const glitching = useGlitch()
+  const batteryLow = (battery?.level ?? 100) < 20
 
   return (
-    <div className="relative w-full h-dvh bg-hud-dark overflow-hidden">
-      {/* Layer 0 — grid background */}
-      <GridOverlay />
+    <div
+      className="relative w-full h-dvh bg-hud-dark overflow-hidden"
+      style={{
+        filter: glitching ? "hue-rotate(20deg) brightness(1.1)" : "none",
+        transition: glitching ? "none" : "filter 0.3s ease",
+      }}
+    >
+      {/* ── Layer 0 — Animated grid background ────────────────────────── */}
+      <div
+        style={{
+          opacity: bootStage === "off" ? 0 : 1,
+          transition: "opacity 0.5s ease",
+        }}
+      >
+        <GridOverlay />
+      </div>
 
-      {/* Layer 1 — camera feed */}
+      {/* ── Layer 1 — Live camera feed ─────────────────────────────────── */}
       <video
         ref={videoRef}
         className="absolute inset-0 w-full h-full object-cover"
@@ -37,43 +55,74 @@ export function CameraFeed() {
         aria-label="Camera feed"
       />
 
-      {/* Layer 2 — canvas for bounding boxes */}
+      {/* ── Layer 2 — Canvas for bounding boxes ───────────────────────── */}
       <canvas
         ref={canvasRef}
         className="absolute inset-0 w-full h-full"
         style={{ objectFit: "cover" }}
       />
 
-      {/* Layer 3 — scanlines */}
+      {/* ── Layer 3 — Scanlines overlay ────────────────────────────────── */}
       <ScanlineOverlay />
 
-      {/* Layer 4 — HUD panels */}
+      {/* ── Layer 4 — HUD panels ──────────────────────────────────────── */}
       <div className="absolute inset-0 z-20 pointer-events-none">
+        {/* Top left — system status + low power toggle */}
         <div className="absolute top-6 left-4">
-          <HudTopLeft />
+          <HudTopLeft bootStage={bootStage} />
         </div>
 
+        {/* Top right — GPS coordinates + heading */}
         <div className="absolute top-6 right-4">
-          <HudTopRight />
+          <HudTopRight bootStage={bootStage} />
         </div>
 
-        <HudReticle objectCount={detections.length} />
+        {/* Center — reticle + object label */}
+        <HudReticle objectCount={detections.length} bootStage={bootStage} />
 
-        {/* HudBottomBar reads from store directly — no props needed */}
-        <HudBottomBar />
+        {/* Bottom — FPS, objects, battery, clock */}
+        <div
+          style={{
+            opacity: bootStage === "online" ? 1 : 0,
+            transition: "opacity 0.6s ease",
+          }}
+        >
+          <HudBottomBar />
+        </div>
       </div>
 
-      {/* Layer 5 — model loading overlay */}
-      <ModelLoadingOverlay />
+      {/* ── Layer 5 — Neural network loading overlay ───────────────────── */}
+      {status === "active" && <ModelLoadingOverlay />}
 
-      {/* Layer 6 — camera permission states */}
+      {/* ── Layer 6 — Battery critical warning ────────────────────────── */}
+      {batteryLow && (
+        <div
+          className="absolute left-1/2 -translate-x-1/2 z-25 pointer-events-none"
+          style={{ top: "45%" }}
+        >
+          <div
+            className="text-red-400 font-orbitron text-xs tracking-widest animate-pulse-hud"
+            style={{
+              fontFamily: "Orbitron, sans-serif",
+              textShadow: "0 0 10px red",
+            }}
+          >
+            ⚠ POWER_CRITICAL
+          </div>
+        </div>
+      )}
+
+      {/* ── Layer 7 — Camera permission states ────────────────────────── */}
       {status === "requesting" && (
         <div className="absolute inset-0 z-30 flex items-center justify-center">
           <div className="text-center space-y-4">
             <div className="text-hud-cyan font-orbitron text-xl animate-pulse-hud">
               INITIALISING CAMERA
             </div>
-            <div className="text-hud-cyan/50 font-mono text-sm">
+            <div
+              className="text-hud-cyan/50 text-sm"
+              style={{ fontFamily: "Share Tech Mono, monospace" }}
+            >
               Requesting sensor access...
             </div>
           </div>
@@ -87,7 +136,10 @@ export function CameraFeed() {
             <div className="text-red-400 font-orbitron text-sm mb-2">
               ⚠ SENSOR ERROR
             </div>
-            <div className="text-hud-cyan/70 font-mono text-xs leading-relaxed">
+            <div
+              className="text-hud-cyan/70 text-xs leading-relaxed"
+              style={{ fontFamily: "Share Tech Mono, monospace" }}
+            >
               {error}
             </div>
             <button

@@ -4,117 +4,162 @@ import { useEffect, useRef } from "react"
 import { useHudStore } from "@/store/hudStore"
 import type { Detection } from "@/store/hudStore"
 
-const CONFIDENCE_THRESHOLD = 0.6 // only show detections above 60% confidence
-const FRAME_SKIP = 2 // run detection every N frames (performance)
+// ─── Adaptive Frame Skip ───────────────────────────────────────────────────────
+
+function getAdaptiveFrameSkip(currentFps: number): number {
+  if (currentFps === 0) return 3 // default on startup
+  if (currentFps >= 20) return 2 // fast device — detect more often
+  if (currentFps >= 12) return 3 // mid-range — comfortable
+  return 5 // slow device — prioritise smoothness
+}
+
+// ─── Hook ─────────────────────────────────────────────────────────────────────
 
 export function useDetection(
   videoRef: React.RefObject<HTMLVideoElement | null>,
   canvasRef: React.RefObject<HTMLCanvasElement | null>,
+  enabled: boolean,
 ) {
+  const workerRef = useRef<Worker | null>(null)
   const rafRef = useRef<number>(0)
   const frameCountRef = useRef(0)
-  const lastFpsTime = useRef(performance.now())
+  const inferenceRunning = useRef(false)
+  const lastFpsTime = useRef(0)
   const fpsFrameCount = useRef(0)
 
   const { setDetections, setFps, setModelLoaded, setModelLoading } =
     useHudStore()
 
   useEffect(() => {
-    let model: Awaited<
-      ReturnType<typeof import("@tensorflow-models/coco-ssd").load>
-    > | null = null
-    let cancelled = false
+    if (!enabled) return
 
-    async function loadModel() {
-      setModelLoading(true)
+    lastFpsTime.current = performance.now()
+    frameCountRef.current = 0
+    fpsFrameCount.current = 0
+    inferenceRunning.current = false
 
-      // Dynamic import — keeps TF.js OUT of the initial bundle
-      // Users don't download 3MB of ML code until the camera is ready
-      const tf = await import("@tensorflow/tfjs")
-      await tf.ready() // wait for WebGL/WASM backend to initialise
+    // ── Spawn Worker ────────────────────────────────────────────────────────
+    const worker = new Worker("/detection.worker.js")
+    workerRef.current = worker
 
-      const cocoSsd = await import("@tensorflow-models/coco-ssd")
-      model = await cocoSsd.load({
-        base: "lite_mobilenet_v2", // fastest variant, good for mobile
-      })
+    worker.onmessage = (e) => {
+      const { type, detections, error } = e.data
 
-      if (!cancelled) {
+      if (type === "MODEL_READY") {
         setModelLoaded(true)
         setModelLoading(false)
-        startLoop()
       }
-    }
 
-    function startLoop() {
-      function loop() {
-        if (cancelled) return
+      if (type === "MODEL_ERROR") {
+        console.error("Worker model error:", error)
+        setModelLoading(false)
+      }
 
-        rafRef.current = requestAnimationFrame(loop)
+      if (type === "DETECTIONS") {
+        inferenceRunning.current = false
 
-        const video = videoRef.current
+        const typed = detections as Detection[]
+        setDetections(typed)
+
+        // Draw boxes back on main thread — worker can't touch the DOM
         const canvas = canvasRef.current
-
-        // Don't run if video isn't playing yet
-        if (!video || !canvas || video.readyState < 2) return
-
-        frameCountRef.current++
-
-        // FPS calculation — update every second
-        fpsFrameCount.current++
-        const now = performance.now()
-        const elapsed = now - lastFpsTime.current
-        if (elapsed >= 1000) {
-          setFps(Math.round((fpsFrameCount.current * 1000) / elapsed))
-          fpsFrameCount.current = 0
-          lastFpsTime.current = now
+        const video = videoRef.current
+        if (canvas && video) {
+          drawBoxes(canvas, video, typed)
         }
+      }
+    }
 
-        // Skip frames for performance — run detection every FRAME_SKIP frames
-        if (frameCountRef.current % FRAME_SKIP !== 0) return
-        if (!model) return
+    worker.onerror = (e) => {
+      console.error("Worker error:", e.message)
+      setModelLoading(false)
+    }
 
-        // Run detection — this is async but we don't await it inside RAF
-        // Instead we fire-and-forget and let the next frame pick up results
-        model.detect(video).then((predictions) => {
-          if (cancelled) return
+    // Tell worker to start loading the model immediately
+    setModelLoading(true)
+    worker.postMessage({ type: "LOAD" })
 
-          const filtered: Detection[] = predictions
-            .filter((p) => p.score >= CONFIDENCE_THRESHOLD)
-            .map((p) => ({
-              class: p.class,
-              score: p.score,
-              bbox: p.bbox as [number, number, number, number],
-            }))
+    // ── RAF Loop ────────────────────────────────────────────────────────────
+    function loop() {
+      rafRef.current = requestAnimationFrame(loop)
 
-          setDetections(filtered)
-          drawBoxes(canvas, video, filtered)
-        })
+      const video = videoRef.current
+      if (!video || video.readyState < 2) return
+
+      // FPS counter — update once per second
+      fpsFrameCount.current++
+      const now = performance.now()
+      const elapsed = now - lastFpsTime.current
+      if (elapsed >= 1000) {
+        setFps(Math.round((fpsFrameCount.current * 1000) / elapsed))
+        fpsFrameCount.current = 0
+        lastFpsTime.current = now
       }
 
-      loop()
+      // Adaptive frame skip based on observed FPS
+      frameCountRef.current++
+      const { fps } = useHudStore.getState()
+      const skip = getAdaptiveFrameSkip(fps)
+      if (frameCountRef.current % skip !== 0) return
+
+      // Don't stack inference calls — wait for previous to finish
+      if (inferenceRunning.current) return
+
+      // Capture frame as transferable ImageBitmap — zero copy to worker
+      createImageBitmap(video)
+        .then((bitmap) => {
+          inferenceRunning.current = true
+          worker.postMessage(
+            {
+              type: "DETECT",
+              bitmap,
+              width: video.videoWidth,
+              height: video.videoHeight,
+              threshold: 0.6,
+            },
+            [bitmap], // transfer ownership — bitmap is now owned by worker
+          )
+        })
+        .catch(() => {
+          // Video frame capture failed — skip this frame silently
+          inferenceRunning.current = false
+        })
     }
 
-    loadModel()
+    loop()
 
+    // ── Cleanup ─────────────────────────────────────────────────────────────
     return () => {
-      cancelled = true
       cancelAnimationFrame(rafRef.current)
+      workerRef.current = null
+      worker.terminate()
     }
-  }, []) // eslint-disable-line react-hooks/exhaustive-deps
-
-  return null
+  }, [
+    canvasRef,
+    enabled,
+    setDetections,
+    setFps,
+    setModelLoaded,
+    setModelLoading,
+    videoRef,
+  ])
 }
 
-// ─── Canvas Drawing ───────────────────────────────────────────────────────────
+// ─── Canvas Drawing ────────────────────────────────────────────────────────────
 
 function drawBoxes(
   canvas: HTMLCanvasElement,
   video: HTMLVideoElement,
   detections: Detection[],
 ) {
-  // Sync canvas pixel buffer to video dimensions
-  canvas.width = video.videoWidth
-  canvas.height = video.videoHeight
+  // Only resize canvas if dimensions actually changed — avoids unnecessary clears
+  if (
+    canvas.width !== video.videoWidth ||
+    canvas.height !== video.videoHeight
+  ) {
+    canvas.width = video.videoWidth
+    canvas.height = video.videoHeight
+  }
 
   const ctx = canvas.getContext("2d")
   if (!ctx) return
@@ -125,21 +170,23 @@ function drawBoxes(
     const [x, y, w, h] = det.bbox
     const label = `${det.class.toUpperCase()} ${Math.round(det.score * 100)}%`
 
-    // Glow effect — draw box twice, blurred then sharp
+    // Outer glow box
     ctx.shadowColor = "#00D4FF"
     ctx.shadowBlur = 12
     ctx.strokeStyle = "#00D4FF"
     ctx.lineWidth = 1.5
     ctx.strokeRect(x, y, w, h)
 
-    // Corner brackets on bounding box (Iron Man style)
+    // Corner brackets — Iron Man style
     ctx.shadowBlur = 0
     drawCornerBrackets(ctx, x, y, w, h)
 
-    // Label background
+    // Label — position above box, or below if too close to top
     const labelY = y > 24 ? y - 6 : y + h + 16
     ctx.font = '600 13px "Share Tech Mono", monospace'
     const textWidth = ctx.measureText(label).width
+
+    // Label background
     ctx.fillStyle = "rgba(0, 0, 0, 0.6)"
     ctx.fillRect(x, labelY - 14, textWidth + 10, 18)
 
@@ -159,7 +206,7 @@ function drawCornerBrackets(
   w: number,
   h: number,
 ) {
-  const size = Math.min(w, h) * 0.2 // bracket size = 20% of box
+  const size = Math.min(w, h) * 0.2
   ctx.strokeStyle = "#00D4FF"
   ctx.lineWidth = 2
   ctx.shadowColor = "#00D4FF"
@@ -171,18 +218,21 @@ function drawCornerBrackets(
   ctx.lineTo(x, y)
   ctx.lineTo(x + size, y)
   ctx.stroke()
+
   // Top-right
   ctx.beginPath()
   ctx.moveTo(x + w - size, y)
   ctx.lineTo(x + w, y)
   ctx.lineTo(x + w, y + size)
   ctx.stroke()
+
   // Bottom-left
   ctx.beginPath()
   ctx.moveTo(x, y + h - size)
   ctx.lineTo(x, y + h)
   ctx.lineTo(x + size, y + h)
   ctx.stroke()
+
   // Bottom-right
   ctx.beginPath()
   ctx.moveTo(x + w - size, y + h)

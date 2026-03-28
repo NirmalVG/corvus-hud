@@ -1,20 +1,31 @@
 "use client"
 
 import { CornerBrackets } from "@/components/hud/CornerBrackets"
+import { BootStage } from "@/hooks/useBootSequence"
 
 interface HudTopLeftProps {
+  bootStage?: BootStage
   status?: string
   signalStrength?: number
 }
 
 export function HudTopLeft({
+  bootStage = "online",
   status = "NOMINAL",
   signalStrength = 98,
 }: HudTopLeftProps) {
+  const visible =
+    bootStage === "panels" || bootStage === "reticle" || bootStage === "online"
+
   return (
     <div
       className="relative p-2 sm:p-3 w-[44vw] sm:w-[42vw] md:w-[38vw] lg:w-[280px]"
-      style={{ fontFamily: "Share Tech Mono, monospace" }}
+      style={{
+        fontFamily: "Share Tech Mono, monospace",
+        opacity: visible ? 1 : 0,
+        transform: visible ? "translateX(0)" : "translateX(-20px)",
+        transition: "opacity 0.6s ease, transform 0.6s ease",
+      }}
     >
       <CornerBrackets />
 
@@ -24,7 +35,7 @@ export function HudTopLeft({
           height="14"
           viewBox="0 0 24 24"
           fill="none"
-          className="shrink-0 sm:w-4 sm:h-4"
+          className="shrink-0"
         >
           <circle cx="12" cy="12" r="2" fill="#00D4FF" />
           <path
