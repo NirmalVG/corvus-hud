@@ -3,7 +3,19 @@ import { create } from "zustand"
 export interface Detection {
   class: string
   score: number
-  bbox: [number, number, number, number] // [x, y, width, height]
+  bbox: [number, number, number, number]
+}
+
+export interface LocationData {
+  lat: number
+  lng: number
+  heading: number | null
+  accuracy: number
+}
+
+export interface BatteryData {
+  level: number // 0–100
+  charging: boolean
 }
 
 interface HudState {
@@ -13,11 +25,21 @@ interface HudState {
   modelLoaded: boolean
   modelLoading: boolean
 
+  // Location
+  location: LocationData | null
+  locationLabel: string
+
+  // Battery
+  battery: BatteryData | null
+
   // Actions
-  setDetections: (detections: Detection[]) => void
+  setDetections: (d: Detection[]) => void
   setFps: (fps: number) => void
-  setModelLoaded: (loaded: boolean) => void
-  setModelLoading: (loading: boolean) => void
+  setModelLoaded: (v: boolean) => void
+  setModelLoading: (v: boolean) => void
+  setLocation: (loc: LocationData) => void
+  setLocationLabel: (label: string) => void
+  setBattery: (b: BatteryData) => void
 }
 
 export const useHudStore = create<HudState>((set) => ({
@@ -25,9 +47,15 @@ export const useHudStore = create<HudState>((set) => ({
   fps: 0,
   modelLoaded: false,
   modelLoading: false,
+  location: null,
+  locationLabel: "ACQUIRING...",
+  battery: null,
 
   setDetections: (detections) => set({ detections }),
   setFps: (fps) => set({ fps }),
-  setModelLoaded: (loaded) => set({ modelLoaded: loaded }),
-  setModelLoading: (loading) => set({ modelLoading: loading }),
+  setModelLoaded: (modelLoaded) => set({ modelLoaded }),
+  setModelLoading: (modelLoading) => set({ modelLoading }),
+  setLocation: (location) => set({ location }),
+  setLocationLabel: (locationLabel) => set({ locationLabel }),
+  setBattery: (battery) => set({ battery }),
 }))

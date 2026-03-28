@@ -2,6 +2,8 @@
 
 import { useCamera } from "@/hooks/useCamera"
 import { useDetection } from "@/hooks/useDetection"
+import { useLocation, useCompass } from "@/hooks/useLocation"
+import { useBattery } from "@/hooks/useBattery"
 import { useHudStore } from "@/store/hudStore"
 import { ScanlineOverlay } from "@/components/overlays/ScanlineOverlay"
 import { GridOverlay } from "@/components/overlays/GridOverlay"
@@ -15,13 +17,18 @@ import { ModelLoadingOverlay } from "@/components/hud/ModelLoadingOverlay"
 export function CameraFeed() {
   const { videoRef, canvasRef, status, error } = useCamera()
   useDetection(videoRef, canvasRef)
+  useLocation()
+  useCompass()
+  useBattery()
 
-  const { detections, fps } = useHudStore()
+  const { detections } = useHudStore()
 
   return (
     <div className="relative w-full h-dvh bg-hud-dark overflow-hidden">
+      {/* Layer 0 — grid background */}
       <GridOverlay />
 
+      {/* Layer 1 — camera feed */}
       <video
         ref={videoRef}
         className="absolute inset-0 w-full h-full object-cover"
@@ -30,34 +37,36 @@ export function CameraFeed() {
         aria-label="Camera feed"
       />
 
+      {/* Layer 2 — canvas for bounding boxes */}
       <canvas
         ref={canvasRef}
         className="absolute inset-0 w-full h-full"
         style={{ objectFit: "cover" }}
       />
 
+      {/* Layer 3 — scanlines */}
       <ScanlineOverlay />
 
+      {/* Layer 4 — HUD panels */}
       <div className="absolute inset-0 z-20 pointer-events-none">
         <div className="absolute top-6 left-4">
           <HudTopLeft />
         </div>
+
         <div className="absolute top-6 right-4">
           <HudTopRight />
         </div>
 
         <HudReticle objectCount={detections.length} />
 
-        <HudBottomBar
-          fps={fps}
-          objectCount={detections.length}
-          battery={88}
-          temperature={22}
-        />
+        {/* HudBottomBar reads from store directly — no props needed */}
+        <HudBottomBar />
       </div>
 
+      {/* Layer 5 — model loading overlay */}
       <ModelLoadingOverlay />
 
+      {/* Layer 6 — camera permission states */}
       {status === "requesting" && (
         <div className="absolute inset-0 z-30 flex items-center justify-center">
           <div className="text-center space-y-4">

@@ -1,22 +1,14 @@
 "use client"
 
+import { useHudStore } from "@/store/hudStore"
 import { CornerBrackets } from "@/components/hud/CornerBrackets"
 
-interface HudTopRightProps {
-  lat?: number
-  lng?: number
-  heading?: number
-  zoom?: number
-  location?: string
-}
+export function HudTopRight() {
+  const { location, locationLabel } = useHudStore()
 
-export function HudTopRight({
-  lat = 40.7128,
-  lng = -74.006,
-  heading = 245,
-  zoom = 1,
-  location = "LOC_NYC_MHTN",
-}: HudTopRightProps) {
+  const lat = location?.lat ?? null
+  const heading = location?.heading ?? null
+
   return (
     <div
       className="relative p-2 sm:p-3 w-[38vw] sm:w-[36vw] md:w-[32vw] lg:w-[220px] text-right"
@@ -30,15 +22,21 @@ export function HudTopRight({
       >
         GPS:
         <br />
-        {Math.abs(lat).toFixed(4)}° {lat >= 0 ? "N" : "S"}
+        {lat !== null ? (
+          <>
+            {Math.abs(lat).toFixed(4)}° {lat >= 0 ? "N" : "S"}
+          </>
+        ) : (
+          <span className="animate-pulse-hud">ACQUIRING</span>
+        )}
       </div>
 
       <div className="text-hud-cyan/70 text-[9px] sm:text-[10px] mb-1 uppercase tracking-wider">
-        HDG: {heading}° &nbsp;|&nbsp; ZOOM: {zoom}X
+        HDG: {heading !== null ? `${heading}°` : "--°"} &nbsp;|&nbsp; ZOOM: 1X
       </div>
 
-      <div className="text-hud-cyan/50 text-[9px] sm:text-[10px] uppercase tracking-widest">
-        {location}
+      <div className="text-hud-cyan/50 text-[9px] sm:text-[10px] uppercase tracking-widest truncate">
+        {locationLabel}
       </div>
     </div>
   )

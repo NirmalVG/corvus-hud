@@ -1,18 +1,35 @@
 "use client"
 
-interface HudBottomBarProps {
-  fps?: number
-  objectCount?: number
-  battery?: number
-  temperature?: number
+import { useHudStore } from "@/store/hudStore"
+import { useEffect, useState } from "react"
+
+function useLocalTime() {
+  const [time, setTime] = useState("")
+
+  useEffect(() => {
+    function update() {
+      const now = new Date()
+      const h = String(now.getHours()).padStart(2, "0")
+      const m = String(now.getMinutes()).padStart(2, "0")
+      const s = String(now.getSeconds()).padStart(2, "0")
+      setTime(`${h}:${m}:${s}`)
+    }
+    update()
+    const interval = setInterval(update, 1000)
+    return () => clearInterval(interval)
+  }, [])
+
+  return time
 }
 
-export function HudBottomBar({
-  fps = 60,
-  objectCount = 4,
-  battery = 88,
-  temperature = 22,
-}: HudBottomBarProps) {
+export function HudBottomBar() {
+  const { fps, detections, battery } = useHudStore()
+  const time = useLocalTime()
+
+  const batteryLevel = battery?.level ?? 88
+  const isCharging = battery?.charging ?? false
+  const objectCount = detections.length
+
   const items = [
     {
       icon: (
@@ -26,7 +43,7 @@ export function HudBottomBar({
           />
         </svg>
       ),
-      label: `${fps} FPS`,
+      label: `${fps > 0 ? fps : "--"} FPS`,
       active: false,
     },
     {
@@ -87,30 +104,51 @@ export function HudBottomBar({
           <rect
             x="4"
             y="9"
-            width={`${(battery / 100) * 12}`}
+            width={`${(batteryLevel / 100) * 12}`}
             height="6"
             rx="1"
             fill="#00D4FF"
             opacity="0.8"
           />
+          {isCharging && <circle cx="11" cy="12" r="1.5" fill="#00D4FF" />}
         </svg>
       ),
-      label: `BAT_${battery}%`,
+      label: isCharging ? `CHG_${batteryLevel}%` : `BAT_${batteryLevel}%`,
       active: false,
     },
     {
       icon: (
         <svg width="22" height="22" viewBox="0 0 24 24" fill="none">
-          <path
-            d="M12 2a7 7 0 0 1 7 7c0 4-7 13-7 13S5 13 5 9a7 7 0 0 1 7-7z"
+          <circle
+            cx="12"
+            cy="12"
+            r="9"
             stroke="#00D4FF"
             strokeWidth="1.5"
-            fill="none"
+            opacity="0.8"
           />
-          <circle cx="12" cy="9" r="2.5" stroke="#00D4FF" strokeWidth="1.2" />
+          <line
+            x1="12"
+            y1="7"
+            x2="12"
+            y2="12"
+            stroke="#00D4FF"
+            strokeWidth="1.5"
+            strokeLinecap="round"
+          />
+          <line
+            x1="12"
+            y1="12"
+            x2="15"
+            y2="14"
+            stroke="#00D4FF"
+            strokeWidth="1.2"
+            strokeLinecap="round"
+          />
+          <circle cx="12" cy="12" r="1.2" fill="#00D4FF" />
         </svg>
       ),
-      label: `${temperature}°`,
+      label: time || "--:--:--",
       active: false,
     },
   ]
@@ -134,7 +172,9 @@ export function HudBottomBar({
             {item.icon}
           </div>
           <span
-            className={`text-[9px] sm:text-[10px] uppercase tracking-widest ${item.active ? "text-hud-cyan" : "text-hud-cyan/50"}`}
+            className={`text-[9px] sm:text-[10px] uppercase tracking-widest ${
+              item.active ? "text-hud-cyan" : "text-hud-cyan/50"
+            }`}
           >
             {item.label}
           </span>

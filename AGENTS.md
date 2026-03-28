@@ -212,6 +212,30 @@ If asked to implement something from a later phase, flag it and confirm with the
 
 ---
 
+## Privacy Rules — Non-Negotiable
+
+This project operates on a strict zero-external-data policy.
+
+**NOTHING leaves the device except:**
+
+- TF.js model file download on first load (model weights only, no user data)
+
+**PERMANENTLY REMOVED — do not reintroduce:**
+
+- ❌ Nominatim / OpenStreetMap reverse geocoding
+- ❌ OpenWeatherMap or any weather API
+- ❌ OpenAQ or any air quality API
+- ❌ Wikipedia or any landmark API
+- ❌ MongoDB Atlas or any database logging
+- ❌ Sentry or any error tracking service
+- ❌ Any analytics, telemetry, or usage tracking
+
+**Local-only alternatives in use:**
+
+- Location label → formatted from raw GPS coords (formatCoords helper)
+- Time/temperature slot → local device clock (useLocalTime hook)
+- All ML inference → TensorFlow.js on-device (COCO-SSD)
+
 _Project: IRONMAN-HUD-01 · Author: Nirmal · License: MIT · Budget: ₹0_
 
 <!-- END:nextjs-agent-rules -->
