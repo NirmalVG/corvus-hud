@@ -25,7 +25,7 @@ export function CameraFeed() {
   useCompass()
   useBattery()
 
-  const { detections, battery } = useHudStore()
+  const { detections, battery, modelLoaded, modelLoading } = useHudStore()
   const bootStage = useBootSequence(status === "active")
   const glitching = useGlitch()
   const batteryLow = (battery?.level ?? 100) < 20
@@ -58,11 +58,8 @@ export function CameraFeed() {
       />
 
       {/* ── Layer 2 — Canvas for bounding boxes ───────────────────────── */}
-      <canvas
-        ref={canvasRef}
-        className="absolute inset-0 w-full h-full"
-        style={{ objectFit: "cover" }}
-      />
+      {/* No objectFit here — coordinate scaling handled in drawBoxes */}
+      <canvas ref={canvasRef} className="absolute inset-0 w-full h-full" />
 
       {/* ── Layer 3 — Scanlines overlay ────────────────────────────────── */}
       <ScanlineOverlay />
@@ -98,6 +95,42 @@ export function CameraFeed() {
             <VoiceButton />
           </div>
         )}
+
+        {/* ── DEBUG OVERLAY — remove after detection is working ─────── */}
+        <div
+          className="absolute bottom-24 left-4 pointer-events-none z-50"
+          style={{ fontFamily: "Share Tech Mono, monospace" }}
+        >
+          <div className="text-[9px] leading-relaxed space-y-0.5">
+            <div
+              className={modelLoading ? "text-yellow-400" : "text-hud-cyan/30"}
+            >
+              MDL_LOADING: {modelLoading ? "YES" : "NO"}
+            </div>
+            <div className={modelLoaded ? "text-green-400" : "text-red-400"}>
+              MDL_READY: {modelLoaded ? "YES" : "NO"}
+            </div>
+            <div className="text-hud-cyan/50">CAM_STATUS: {status}</div>
+            <div
+              className={
+                detections.length > 0 ? "text-green-400" : "text-hud-cyan/50"
+              }
+            >
+              DETECTIONS: {detections.length}
+            </div>
+            <div className="text-hud-cyan/50">
+              DETECTION_ENABLED: {String(status === "active")}
+            </div>
+            <div
+              className={
+                bootStage === "online" ? "text-green-400" : "text-yellow-400"
+              }
+            >
+              BOOT: {bootStage.toUpperCase()}
+            </div>
+          </div>
+        </div>
+        {/* ── END DEBUG ──────────────────────────────────────────────── */}
       </div>
 
       {/* ── Layer 5 — Neural network loading overlay ───────────────────── */}
