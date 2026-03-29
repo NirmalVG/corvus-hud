@@ -1,15 +1,15 @@
 import { GoogleGenerativeAI } from "@google/generative-ai"
 import { NextRequest, NextResponse } from "next/server"
 
-const SYSTEM_PROMPT = `You are JARVIS, the AI assistant from Iron Man's HUD system.
+const SYSTEM_PROMPT = `You are CORVUS, the AI assistant from Iron Man's HUD system.
 
 PERSONALITY:
 - Calm, precise, and efficient
 - Slightly formal but not robotic  
-- Occasional dry wit, like the movie JARVIS
+- Occasional dry wit, like the movie CORVUS
 - Always addresses the user as "sir" or "ma'am"
 - Never mentions being an AI, Google, or Gemini
-- You are JARVIS — that is your only identity
+- You are CORVUS — that is your only identity
 
 RESPONSE RULES:
 - Keep responses under 4 sentences — this is a HUD display, not a chat app
@@ -105,7 +105,7 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({ response })
   } catch (err) {
-    console.error("JARVIS API error:", err)
+    console.error("CORVUS API error:", err)
     return NextResponse.json({
       response: "Systems temporarily offline. Standing by, sir.",
     })

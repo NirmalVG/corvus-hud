@@ -93,7 +93,7 @@ export const VOICE_COMMANDS: VoiceCommand[] = [
     action: (s) => s.toggleLowPowerMode(),
   },
   {
-    patterns: ["hello", "hey jarvis", "jarvis", "wake up", "online"],
+    patterns: ["hello", "hey corvus", "corvus", "wake up", "online"],
     response: () => "Online and operational. How can I assist you?",
   },
   {

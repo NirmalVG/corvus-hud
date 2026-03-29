@@ -110,7 +110,7 @@ export function ConversationPanel() {
                 textShadow: "0 0 8px #00D4FF",
               }}
             >
-              JARVIS
+              CORVUS
             </span>
           </div>
 
@@ -158,7 +158,7 @@ export function ConversationPanel() {
               <br />
               Hold mic and speak{"\n"}
               <br />
-              to activate JARVIS.
+              to activate CORVUS.
             </div>
           )}
 
@@ -180,7 +180,7 @@ export function ConversationPanel() {
                       : "rgba(0,212,255,0.6)",
                 }}
               >
-                {msg.role === "user" ? "▸ you" : "◈ jarvis"}
+                {msg.role === "user" ? "▸ you" : "◈ corvus"}
               </div>
 
               {/* Message bubble */}
@@ -202,7 +202,7 @@ export function ConversationPanel() {
                       : "rgba(0,212,255,0.95)",
                   borderRadius: 2,
                   textShadow:
-                    msg.role === "jarvis"
+                    msg.role === "corvus"
                       ? "0 0 8px rgba(0,212,255,0.3)"
                       : "none",
                 }}

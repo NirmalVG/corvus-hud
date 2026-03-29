@@ -240,9 +240,9 @@ This project operates on a strict zero-external-data policy.
 
 | Service                                 | What's Sent                                           | What's NOT Sent                        |
 | --------------------------------------- | ----------------------------------------------------- | -------------------------------------- |
-| Gemini 2.0 Flash-Lite (via /api/jarvis) | Voice transcript, object names, heading, battery, fps | GPS coordinates, camera frames, images |
+| Gemini 2.0 Flash-Lite (via /api/corvus) | Voice transcript, object names, heading, battery, fps | GPS coordinates, camera frames, images |
 
-All Gemini calls go through /api/jarvis serverless function.
+All Gemini calls go through /api/corvus serverless function.
 The API key lives in Vercel env vars — never in client code.
 GPS coordinates must never be added to the Gemini context.
 

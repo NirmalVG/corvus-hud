@@ -23,7 +23,7 @@ export interface BatteryData {
 export type VoiceState = "idle" | "listening" | "processing" | "speaking"
 
 export interface ConversationMessage {
-  role: "user" | "jarvis"
+  role: "user" | "corvus"
   text: string
   timestamp: number
 }

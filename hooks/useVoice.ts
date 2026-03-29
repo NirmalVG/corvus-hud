@@ -62,13 +62,13 @@ declare global {
   }
 }
 
-async function askJarvis(
+async function askCorvus(
   command: string,
   context: object,
   history: Array<{ role: string; text: string }>,
 ): Promise<string> {
   try {
-    const res = await fetch("/api/jarvis", {
+    const res = await fetch("/api/corvus", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ command, context, history }),
@@ -96,8 +96,8 @@ export function useVoice() {
       setVoiceState("speaking")
       setLastResponse(text)
 
-      // Log JARVIS response to conversation panel
-      addMessage({ role: "jarvis", text, timestamp: Date.now() })
+      // Log CORVUS response to conversation panel
+      addMessage({ role: "corvus", text, timestamp: Date.now() })
 
       const utterance = new SpeechSynthesisUtterance(text)
       utterance.rate = 0.92
@@ -205,7 +205,7 @@ export function useVoice() {
         .slice(-6)
         .map((m) => ({ role: m.role, text: m.text }))
 
-      const response = await askJarvis(transcript, context, history)
+      const response = await askCorvus(transcript, context, history)
       speak(response)
     }
 

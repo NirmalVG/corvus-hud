@@ -2,8 +2,8 @@ import type { Metadata } from "next"
 import "./globals.css"
 
 export const metadata: Metadata = {
-  title: "IronMan HUD",
-  description: "Augmented Reality HUD — Turn your phone into Iron Man's helmet",
+  title: "Corvus HUD",
+  description: "Augmented Reality HUD — Mobile tactical heads-up display",
 }
 
 export default function RootLayout({
@@ -32,7 +32,7 @@ export default function RootLayout({
           name="apple-mobile-web-app-status-bar-style"
           content="black-translucent"
         />
-        <meta name="apple-mobile-web-app-title" content="IronMan HUD" />
+        <meta name="apple-mobile-web-app-title" content="Corvus HUD" />
       </head>
       <body className="bg-hud-dark overflow-hidden" suppressHydrationWarning>
         {children}
