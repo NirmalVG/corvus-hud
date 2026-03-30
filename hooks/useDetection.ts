@@ -3,12 +3,14 @@
 import { useEffect, useRef } from "react"
 import { useHudStore } from "@/store/hudStore"
 import type { Detection } from "@/store/hudStore"
+import { updateTracker, clearTracker } from "@/lib/objectTracker"
+import { drawDetections } from "@/lib/drawDetections"
 
-function getAdaptiveFrameSkip(currentFps: number): number {
-  if (currentFps === 0) return 3
-  if (currentFps >= 20) return 2
-  if (currentFps >= 12) return 3
-  return 5
+function getAdaptiveFrameSkip(fps: number): number {
+  if (fps === 0) return 3
+  if (fps >= 20) return 2
+  if (fps >= 12) return 3
+  return 4
 }
 
 export function useDetection(
@@ -16,304 +18,100 @@ export function useDetection(
   canvasRef: React.RefObject<HTMLCanvasElement | null>,
   enabled: boolean,
 ) {
-  const workerRef = useRef<Worker | null>(null)
   const rafRef = useRef<number>(0)
-  const frameCountRef = useRef(0)
-  const inferenceRunning = useRef(false)
-  const lastFpsTime = useRef(performance.now())
-  const fpsFrameCount = useRef(0)
-  const workerFailed = useRef(false)
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const mainThreadModel = useRef<any>(null)
-  const modelInitialized = useRef(false)
-  const loopRunning = useRef(false)
+  const modelRef = useRef<any>(null)
+  const running = useRef(false)
+  const lastFps = useRef(performance.now())
+  const fpsCount = useRef(0)
+  const frames = useRef(0)
 
   const { setDetections, setFps, setModelLoaded, setModelLoading } =
     useHudStore()
 
   useEffect(() => {
-    console.log("[CORVUS Detection] useEffect fired — enabled:", enabled)
+    if (!enabled) return
 
-    if (!enabled) {
-      console.log("[CORVUS Detection] Not enabled, stopping loop")
-      if (loopRunning.current) {
-        cancelAnimationFrame(rafRef.current)
-        loopRunning.current = false
-      }
-      return
-    }
-
-    if (loopRunning.current) {
-      console.log("[CORVUS Detection] Loop already running, skipping")
-      return
-    }
-
-    loopRunning.current = true
     let cancelled = false
+    clearTracker()
 
-    // ── Try Worker first ───────────────────────────────────────────────
-    function tryWorker() {
-      console.log("[CORVUS Detection] Testing OffscreenCanvas support...")
-
-      try {
-        const test = new OffscreenCanvas(1, 1)
-        test.getContext("2d")
-        console.log(
-          "[CORVUS Detection] OffscreenCanvas supported — spawning worker",
-        )
-      } catch {
-        console.warn(
-          "[CORVUS Detection] OffscreenCanvas NOT supported — using main thread",
-        )
-        workerFailed.current = true
-        loadMainThreadModel()
-        return
-      }
-
-      try {
-        const worker = new Worker("/detection.worker.js")
-        workerRef.current = worker
-
-        worker.onmessage = (e) => {
-          if (cancelled) return
-          const { type, detections, error } = e.data
-          console.log("[CORVUS Detection] Worker message:", type)
-
-          if (type === "MODEL_READY") {
-            console.log("[CORVUS Detection] ✅ Worker model ready")
-            modelInitialized.current = true
-            setModelLoaded(true)
-            setModelLoading(false)
-          }
-
-          if (type === "MODEL_ERROR") {
-            console.warn("[CORVUS Detection] ❌ Worker model error:", error)
-            workerFailed.current = true
-            worker.terminate()
-            workerRef.current = null
-            loadMainThreadModel()
-          }
-
-          if (type === "DETECTIONS") {
-            inferenceRunning.current = false
-            const typed = detections as Detection[]
-            if (typed.length > 0) {
-              console.log(
-                "[CORVUS Detection] ✅ Detections:",
-                typed
-                  .map((d) => `${d.class}(${Math.round(d.score * 100)}%)`)
-                  .join(", "),
-              )
-            }
-            setDetections(typed)
-            const canvas = canvasRef.current
-            const video = videoRef.current
-            if (canvas && video) drawBoxes(canvas, video, typed)
-          }
-        }
-
-        worker.onerror = (e) => {
-          console.warn("[CORVUS Detection] Worker runtime error:", e.message)
-          workerFailed.current = true
-          workerRef.current = null
-          loadMainThreadModel()
-        }
-
-        console.log("[CORVUS Detection] Sending LOAD to worker...")
-        setModelLoading(true)
-        worker.postMessage({ type: "LOAD" })
-      } catch (err) {
-        console.error("[CORVUS Detection] Failed to spawn worker:", err)
-        workerFailed.current = true
-        loadMainThreadModel()
-      }
-    }
-
-    // ── Main thread fallback ───────────────────────────────────────────
-    async function loadMainThreadModel() {
-      if (cancelled || modelInitialized.current) return
-
-      console.log("[CORVUS Detection] Loading model on main thread...")
+    async function init() {
       setModelLoading(true)
+      console.log("[CORVUS] Loading TF.js...")
 
-      try {
-        console.log("[CORVUS Detection] Importing TF.js...")
-        const tf = await import("@tensorflow/tfjs")
+      const tf = await import("@tensorflow/tfjs")
+      await tf.ready()
+      console.log("[CORVUS] Backend:", tf.getBackend())
 
-        console.log("[CORVUS Detection] Waiting for TF ready...")
-        await tf.ready()
-        console.log("[CORVUS Detection] TF ready — backend:", tf.getBackend())
+      const cocoSsd = await import("@tensorflow-models/coco-ssd")
+      modelRef.current = await cocoSsd.load({ base: "lite_mobilenet_v2" })
+      console.log("[CORVUS] COCO-SSD loaded ✅")
 
-        console.log("[CORVUS Detection] Importing COCO-SSD...")
-        const cocoSsd = await import("@tensorflow-models/coco-ssd")
-
-        console.log("[CORVUS Detection] Loading model weights...")
-        const model = await cocoSsd.load({
-          base: "lite_mobilenet_v2",
-        })
-
-        mainThreadModel.current = model
-        console.log("[CORVUS Detection] ✅ Main thread model loaded")
-
-        if (!cancelled) {
-          modelInitialized.current = true
-          setModelLoaded(true)
-          setModelLoading(false)
-
-          // ONE-SHOT TEST — logs raw predictions to console
-          setTimeout(async () => {
-            const video = videoRef.current
-            if (!video || !model) {
-              console.log("[CORVUS TEST] No video or model")
-              return
-            }
-            try {
-              console.log("[CORVUS TEST] Starting warmup detection...")
-              const raw = await model.detect(video)
-              console.log(
-                `[CORVUS TEST] ✅ Warmup successful. Detected ${raw.length} objects: ${raw.map((r: any) => r.class).join(", ") || "(none)"}`,
-              )
-            } catch (err) {
-              console.error("[CORVUS TEST] Warmup detect() threw:", err)
-            }
-          }, 1000)
-        }
-      } catch (err) {
-        console.error("[CORVUS Detection] ❌ Main thread model failed:", err)
+      if (!cancelled) {
+        setModelLoaded(true)
         setModelLoading(false)
-        if (!cancelled) {
-          setModelLoaded(false)
-        }
+
+        // Warmup
+        setTimeout(async () => {
+          const v = videoRef.current
+          if (!v || v.readyState < 2) return
+          const preds = await modelRef.current.detect(v)
+          console.log(
+            "[CORVUS] Warmup:",
+            preds.length
+              ? preds
+                  .map(
+                    (p: { class: string; score: number }) =>
+                      `${p.class}(${Math.round(p.score * 100)}%)`,
+                  )
+                  .join(", ")
+              : "nothing detected — point at an object",
+          )
+        }, 1500)
+
+        startLoop()
       }
     }
 
-    // ── RAF detection loop ─────────────────────────────────────────────
-    let frameLogCount = 0
-    let videoReadyCount = 0
+    function startLoop() {
+      function loop() {
+        if (cancelled) return
+        rafRef.current = requestAnimationFrame(loop)
 
-    function loop() {
-      rafRef.current = requestAnimationFrame(loop)
-
-      const video = videoRef.current
-      if (!video) {
-        if (frameLogCount < 3) {
-          console.log("[CORVUS Detection] ⏳ Waiting for video ref...")
-          frameLogCount++
-        }
-        return
-      }
-
-      // Check video readiness more carefully
-      if (video.readyState < 2 || video.paused) {
-        if (videoReadyCount < 3) {
-          console.log(
-            `[CORVUS Detection] ⏳ Video not ready - readyState: ${video.readyState}, paused: ${video.paused}`,
+        // FPS
+        fpsCount.current++
+        const now = performance.now()
+        if (now - lastFps.current >= 1000) {
+          setFps(
+            Math.round((fpsCount.current * 1000) / (now - lastFps.current)),
           )
-          videoReadyCount++
+          fpsCount.current = 0
+          lastFps.current = now
         }
-        return
-      }
 
-      // Guard zero dimensions
-      if (video.videoWidth === 0 || video.videoHeight === 0) {
-        if (frameLogCount < 3) {
-          console.log(
-            "[CORVUS Detection] ⏳ Video dimensions not set:",
-            `${video.videoWidth}x${video.videoHeight}`,
-          )
-          frameLogCount++
-        }
-        return
-      }
+        const video = videoRef.current
+        const canvas = canvasRef.current
+        if (!video || !canvas) return
+        if (video.readyState < 2) return
+        if (!video.videoWidth || !video.videoHeight) return
+        if (!modelRef.current || running.current) return
 
-      // Reset logs once video is properly streaming
-      if (videoReadyCount > 0 && video.readyState >= 2 && !video.paused) {
-        videoReadyCount = 0
-        frameLogCount = 0
-        console.log(
-          "[CORVUS Detection] ✓ Video streaming - dimensions:",
-          `${video.videoWidth}x${video.videoHeight}`,
-        )
-      }
+        frames.current++
+        const { fps, lowPowerMode } = useHudStore.getState()
+        const skip = lowPowerMode ? 8 : getAdaptiveFrameSkip(fps)
+        if (frames.current % skip !== 0) return
 
-      // FPS counter
-      fpsFrameCount.current++
-      const now = performance.now()
-      const elapsed = now - lastFpsTime.current
-      if (elapsed >= 1000) {
-        setFps(Math.round((fpsFrameCount.current * 1000) / elapsed))
-        fpsFrameCount.current = 0
-        lastFpsTime.current = now
-      }
-
-      frameCountRef.current++
-      const { fps, lowPowerMode } = useHudStore.getState()
-      const skip = lowPowerMode ? 8 : getAdaptiveFrameSkip(fps)
-      if (frameCountRef.current % skip !== 0) return
-      if (inferenceRunning.current) return
-
-      // Log detection status only if model hasn't loaded yet
-      if (!modelInitialized.current && frameLogCount < 5) {
-        console.log(
-          "[CORVUS Detection] ⏳ Waiting for model initialization...",
-          {
-            workerFailed: workerFailed.current,
-            hasWorker: !!workerRef.current,
-          },
-        )
-        frameLogCount++
-      }
-
-      // ── Worker path ──────────────────────────────────────────────────
-      if (!workerFailed.current && workerRef.current) {
-        if (!modelInitialized.current) return
-
-        createImageBitmap(video)
-          .then((bitmap) => {
-            if (cancelled) {
-              bitmap.close()
-              return
-            }
-            inferenceRunning.current = true
-            workerRef.current!.postMessage(
-              {
-                type: "DETECT",
-                bitmap,
-                width: video.videoWidth,
-                height: video.videoHeight,
-                threshold: 0.35,
-              },
-              [bitmap],
-            )
-          })
-          .catch((err) => {
-            console.warn("[CORVUS Detection] createImageBitmap failed:", err)
-            inferenceRunning.current = false
-          })
-        return
-      }
-
-      // ── Main thread path ─────────────────────────────────────────────
-      if (mainThreadModel.current && modelInitialized.current) {
-        if (inferenceRunning.current) return
-
-        inferenceRunning.current = true
-        mainThreadModel.current
+        running.current = true
+        modelRef.current
           .detect(video)
           .then(
             (
-              predictions: Array<{
-                class: string
-                score: number
-                bbox: number[]
-              }>,
+              preds: Array<{ class: string; score: number; bbox: number[] }>,
             ) => {
-              if (cancelled) {
-                inferenceRunning.current = false
-                return
-              }
+              if (cancelled) return
+              running.current = false
 
-              const filtered: Detection[] = predictions
+              const raw = preds
                 .filter((p) => p.score >= 0.35)
                 .map((p) => ({
                   class: p.class,
@@ -321,155 +119,37 @@ export function useDetection(
                   bbox: p.bbox as [number, number, number, number],
                 }))
 
-              setDetections(filtered)
-              const canvas = canvasRef.current
-              if (canvas && video) {
-                drawBoxes(canvas, video, filtered)
-              }
-              inferenceRunning.current = false
+              const tracked = updateTracker(raw, video)
+
+              setDetections(
+                tracked.map((t) => ({
+                  class: t.class,
+                  score: t.confidence,
+                  bbox: t.bbox,
+                })) as Detection[],
+              )
+
+              drawDetections(canvas, video, tracked)
             },
           )
           .catch((err: Error) => {
-            console.error(
-              "[CORVUS Detection] Main thread detect error:",
-              err.message,
-            )
-            inferenceRunning.current = false
+            console.error("[CORVUS] detect error:", err.message)
+            running.current = false
           })
-        return
       }
+
+      loop()
     }
 
-    tryWorker()
-    loop()
+    init().catch((err) => {
+      console.error("[CORVUS] Init failed:", err)
+      setModelLoading(false)
+    })
 
     return () => {
-      console.log("[CORVUS Detection] Cleanup fired")
       cancelled = true
-      loopRunning.current = false
       cancelAnimationFrame(rafRef.current)
-      workerRef.current?.terminate()
-      workerRef.current = null
+      clearTracker()
     }
   }, [enabled]) // eslint-disable-line react-hooks/exhaustive-deps
-}
-
-// ─── Canvas Drawing ────────────────────────────────────────────────────────────
-
-function drawBoxes(
-  canvas: HTMLCanvasElement,
-  video: HTMLVideoElement,
-  detections: Detection[],
-) {
-  const vw = video.videoWidth
-  const vh = video.videoHeight
-  if (!vw || !vh) return
-
-  // Match canvas buffer to screen size — not video size
-  const displayW = canvas.clientWidth || window.innerWidth
-  const displayH = canvas.clientHeight || window.innerHeight
-
-  if (canvas.width !== displayW || canvas.height !== displayH) {
-    canvas.width = displayW
-    canvas.height = displayH
-  }
-
-  const ctx = canvas.getContext("2d")
-  if (!ctx) return
-
-  ctx.clearRect(0, 0, displayW, displayH)
-
-  // Scale factors — map video coords to screen coords
-  // Matches objectFit: cover behaviour of the video element
-  const videoAspect = vw / vh
-  const screenAspect = displayW / displayH
-
-  let scaleX: number
-  let scaleY: number
-  let offsetX = 0
-  let offsetY = 0
-
-  if (videoAspect > screenAspect) {
-    // Video wider — pillarbox
-    scaleY = displayH / vh
-    scaleX = scaleY
-    offsetX = (displayW - vw * scaleX) / 2
-  } else {
-    // Video taller — letterbox
-    scaleX = displayW / vw
-    scaleY = scaleX
-    offsetY = (displayH - vh * scaleY) / 2
-  }
-
-  for (const det of detections) {
-    const [x, y, w, h] = det.bbox
-
-    // Translate to screen coordinates
-    const sx = x * scaleX + offsetX
-    const sy = y * scaleY + offsetY
-    const sw = w * scaleX
-    const sh = h * scaleY
-
-    const label = `${det.class.toUpperCase()} ${Math.round(det.score * 100)}%`
-
-    // Glow box
-    ctx.shadowColor = "#00D4FF"
-    ctx.shadowBlur = 12
-    ctx.strokeStyle = "#00D4FF"
-    ctx.lineWidth = 1.5
-    ctx.strokeRect(sx, sy, sw, sh)
-
-    // Corner brackets
-    ctx.shadowBlur = 0
-    drawCornerBrackets(ctx, sx, sy, sw, sh)
-
-    // Label background
-    const labelY = sy > 24 ? sy - 6 : sy + sh + 16
-    ctx.font = '600 13px "Share Tech Mono", monospace'
-    const textWidth = ctx.measureText(label).width
-    ctx.fillStyle = "rgba(0, 0, 0, 0.6)"
-    ctx.fillRect(sx, labelY - 14, textWidth + 10, 18)
-
-    // Label text
-    ctx.fillStyle = "#00D4FF"
-    ctx.shadowColor = "#00D4FF"
-    ctx.shadowBlur = 8
-    ctx.fillText(label, sx + 5, labelY)
-    ctx.shadowBlur = 0
-  }
-}
-
-function drawCornerBrackets(
-  ctx: CanvasRenderingContext2D,
-  x: number,
-  y: number,
-  w: number,
-  h: number,
-) {
-  const size = Math.min(w, h) * 0.2
-  ctx.strokeStyle = "#00D4FF"
-  ctx.lineWidth = 2
-  ctx.shadowColor = "#00D4FF"
-  ctx.shadowBlur = 6
-
-  ctx.beginPath()
-  ctx.moveTo(x, y + size)
-  ctx.lineTo(x, y)
-  ctx.lineTo(x + size, y)
-  ctx.stroke()
-  ctx.beginPath()
-  ctx.moveTo(x + w - size, y)
-  ctx.lineTo(x + w, y)
-  ctx.lineTo(x + w, y + size)
-  ctx.stroke()
-  ctx.beginPath()
-  ctx.moveTo(x, y + h - size)
-  ctx.lineTo(x, y + h)
-  ctx.lineTo(x + size, y + h)
-  ctx.stroke()
-  ctx.beginPath()
-  ctx.moveTo(x + w - size, y + h)
-  ctx.lineTo(x + w, y + h)
-  ctx.lineTo(x + w, y + h - size)
-  ctx.stroke()
 }
