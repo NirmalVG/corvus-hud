@@ -17,6 +17,7 @@ import { HudBottomBar } from "@/components/hud/HudBottomBar"
 import { ModelLoadingOverlay } from "@/components/hud/ModelLoadingOverlay"
 import { VoiceButton } from "@/components/hud/VoiceButton"
 import { ConversationPanel } from "@/components/hud/ConversationPanel"
+import { useYoloDetection } from "@/hooks/useYoloDetection"
 
 export function CameraFeed() {
   const { videoRef, canvasRef, status, error } = useCamera()
@@ -29,6 +30,8 @@ export function CameraFeed() {
   const bootStage = useBootSequence(status === "active")
   const glitching = useGlitch()
   const batteryLow = (battery?.level ?? 100) < 20
+
+  useYoloDetection(videoRef, status === "active")
 
   return (
     <div
