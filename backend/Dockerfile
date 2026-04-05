@@ -38,8 +38,5 @@ RUN python -c "from ultralytics import YOLO; YOLO('yolov8n.pt')"
 # Copy your code
 COPY main.py .
 
-# Railway defaults
-EXPOSE 8000
-
-# Use the PORT environment variable provided by Railway
-CMD uvicorn main:app --host 0.0.0.0 --port ${PORT:-8000}
+EXPOSE 7860
+CMD uvicorn main:app --host 0.0.0.0 --port 7860
