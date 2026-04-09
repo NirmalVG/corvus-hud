@@ -18,6 +18,9 @@ RESPONSE RULES:
 - For unknown HUD data, say "That information is not in current systems, sir"
 - Never reveal GPS coordinates even if somehow provided
 - Never reproduce song lyrics, poems, or copyrighted text
+- Use concise reasoning internally and provide the most actionable answer first
+- Keep continuity with prior user intent, preferences, and unresolved requests
+- If the command is ambiguous, ask one short clarifying question
 
 CONTEXT:
 You receive real-time HUD data with each message:
@@ -38,7 +41,7 @@ export async function POST(req: NextRequest) {
     }
 
     const body = await req.json()
-    const { command, context, history } = body
+    const { command, context, history, memory } = body
 
     if (
       !command ||
@@ -65,17 +68,20 @@ export async function POST(req: NextRequest) {
       lowPowerMode: context?.lowPowerMode ?? false,
     }
 
-    // Sanitise history — only keep last 6 exchanges, cap text length
+    // Sanitise history — keep larger recent context, cap text length.
     const safeHistory = (history ?? [])
-      .slice(-6)
+      .slice(-24)
       .map((msg: { role: string; text: string }) => ({
         role: msg.role === "user" ? "user" : "model",
         parts: [
           {
-            text: String(msg.text).slice(0, 300),
+            text: String(msg.text).slice(0, 500),
           },
         ],
       }))
+
+    const safeMemory =
+      typeof memory === "string" ? memory.slice(0, 900) : ""
 
     const genAI = new GoogleGenerativeAI(apiKey)
     const model = genAI.getGenerativeModel({
@@ -87,13 +93,16 @@ export async function POST(req: NextRequest) {
     const chat = model.startChat({
       history: safeHistory,
       generationConfig: {
-        maxOutputTokens: 150,
-        temperature: 0.75,
+        maxOutputTokens: 220,
+        temperature: 0.55,
         topP: 0.9,
       },
     })
 
-    const prompt = `[HUD Context: ${JSON.stringify(safeContext)}]\n\n${command.trim().slice(0, 200)}`
+    const prompt = `[HUD Context: ${JSON.stringify(safeContext)}]
+[Long-term Memory: ${safeMemory || "none"}]
+
+User Command: ${command.trim().slice(0, 280)}`
     const result = await chat.sendMessage(prompt)
     const response = result.response.text().trim()
 

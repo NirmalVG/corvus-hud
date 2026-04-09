@@ -1,4 +1,5 @@
 import { create } from "zustand"
+import { persist, createJSONStorage } from "zustand/middleware"
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -85,7 +86,9 @@ interface HudState {
 
 // ─── Store ────────────────────────────────────────────────────────────────────
 
-export const useHudStore = create<HudState>((set) => ({
+export const useHudStore = create<HudState>()(
+  persist(
+    (set) => ({
   // ── Detection ──────────────────────────────────────────────────────────────
   detections: [],
   fps: 0,
@@ -134,20 +137,31 @@ export const useHudStore = create<HudState>((set) => ({
   setLastResponse: (lastResponse) => set({ lastResponse }),
 
   // ── Actions : Conversation ─────────────────────────────────────────────────
-  addMessage: (message) =>
-    set((state) => ({
-      // Keep last 20 messages — prevents memory growing unbounded
-      conversationHistory: [...state.conversationHistory, message].slice(-20),
-      // Auto-open panel on every new message
-      conversationOpen: true,
-    })),
+      addMessage: (message) =>
+        set((state) => ({
+          // Keep a deeper rolling memory without unbounded growth.
+          conversationHistory: [...state.conversationHistory, message].slice(-60),
+          // Auto-open panel on every new message
+          conversationOpen: true,
+        })),
 
-  clearConversation: () =>
-    set({
-      conversationHistory: [],
-      lastCommand: null,
-      lastResponse: null,
+      clearConversation: () =>
+        set({
+          conversationHistory: [],
+          lastCommand: null,
+          lastResponse: null,
+        }),
+
+      setConversationOpen: (conversationOpen) => set({ conversationOpen }),
     }),
-
-  setConversationOpen: (conversationOpen) => set({ conversationOpen }),
-}))
+    {
+      name: "corvus-hud-store",
+      storage: createJSONStorage(() => localStorage),
+      partialize: (state) => ({
+        conversationHistory: state.conversationHistory,
+        lastCommand: state.lastCommand,
+        lastResponse: state.lastResponse,
+      }),
+    },
+  ),
+)

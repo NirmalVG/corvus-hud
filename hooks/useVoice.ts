@@ -66,12 +66,13 @@ async function askCorvus(
   command: string,
   context: object,
   history: Array<{ role: string; text: string }>,
+  memory: string,
 ): Promise<string> {
   try {
     const res = await fetch("/api/corvus", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ command, context, history }),
+      body: JSON.stringify({ command, context, history, memory }),
     })
 
     if (!res.ok) throw new Error(`HTTP ${res.status}`)
@@ -80,6 +81,20 @@ async function askCorvus(
   } catch {
     return "Unable to reach systems. Standing by, sir."
   }
+}
+
+function buildLongTermMemory(
+  history: Array<{ role: "user" | "corvus"; text: string }>,
+): string {
+  const recentUserLines = history
+    .filter((m) => m.role === "user")
+    .slice(-16)
+    .map((m) => m.text.trim())
+    .filter(Boolean)
+
+  const unique = Array.from(new Set(recentUserLines))
+  const compact = unique.slice(-8).join(" | ")
+  return compact.slice(0, 900)
 }
 
 export function useVoice() {
@@ -200,12 +215,13 @@ export function useVoice() {
         return
       }
 
-      // Pass last 6 messages as history for conversation memory
+      // Send deeper history plus compact long-term memory.
       const history = store.conversationHistory
-        .slice(-6)
+        .slice(-24)
         .map((m) => ({ role: m.role, text: m.text }))
+      const memory = buildLongTermMemory(store.conversationHistory)
 
-      const response = await askCorvus(transcript, context, history)
+      const response = await askCorvus(transcript, context, history, memory)
       speak(response)
     }
 
