@@ -17,18 +17,12 @@ import { HudBottomBar } from "@/components/hud/HudBottomBar"
 import { ModelLoadingOverlay } from "@/components/hud/ModelLoadingOverlay"
 import { VoiceButton } from "@/components/hud/VoiceButton"
 import { ConversationPanel } from "@/components/hud/ConversationPanel"
-import { useYoloDetection } from "@/hooks/useYoloDetection"
 
 export function CameraFeed() {
   const { videoRef, canvasRef, status, error } = useCamera()
-  const { detectionEngine, detections, battery, modelLoaded, modelLoading } =
-    useHudStore()
-  useDetection(videoRef, canvasRef, status === "active" && detectionEngine === "coco")
-  useYoloDetection(
-    videoRef,
-    canvasRef,
-    status === "active" && detectionEngine === "yolo",
-  )
+  const { detections, battery, modelLoaded, modelLoading } = useHudStore()
+
+  useDetection(videoRef, canvasRef, status === "active")
   useLocation()
   useCompass()
   useBattery()
@@ -45,7 +39,6 @@ export function CameraFeed() {
         transition: glitching ? "none" : "filter 0.3s ease",
       }}
     >
-      {/* ── Layer 0 — Animated grid background ────────────────────────── */}
       <div
         style={{
           opacity: bootStage === "off" ? 0 : 1,
@@ -55,38 +48,29 @@ export function CameraFeed() {
         <GridOverlay />
       </div>
 
-      {/* ── Layer 1 — Live camera feed ─────────────────────────────────── */}
       <video
         ref={videoRef}
-        className="absolute inset-0 w-full h-full object-cover"
+        className="absolute inset-0 h-full w-full object-cover"
         playsInline
         muted
         aria-label="Camera feed"
       />
 
-      {/* ── Layer 2 — Canvas for bounding boxes ───────────────────────── */}
-      {/* No objectFit here — coordinate scaling handled in drawBoxes */}
-      <canvas ref={canvasRef} className="absolute inset-0 w-full h-full" />
+      <canvas ref={canvasRef} className="absolute inset-0 h-full w-full" />
 
-      {/* ── Layer 3 — Scanlines overlay ────────────────────────────────── */}
       <ScanlineOverlay />
 
-      {/* ── Layer 4 — HUD panels (pointer-events-none by default) ─────── */}
-      <div className="absolute inset-0 z-20 pointer-events-none">
-        {/* Top left — system status + low power toggle */}
-        <div className="absolute top-6 left-4">
+      <div className="pointer-events-none absolute inset-0 z-20">
+        <div className="absolute left-4 top-6">
           <HudTopLeft bootStage={bootStage} />
         </div>
 
-        {/* Top right — GPS coordinates + heading */}
-        <div className="absolute top-6 right-4">
+        <div className="absolute right-4 top-6">
           <HudTopRight bootStage={bootStage} />
         </div>
 
-        {/* Center — reticle + object label */}
         <HudReticle objectCount={detections.length} bootStage={bootStage} />
 
-        {/* Bottom — FPS, objects, battery, clock */}
         <div
           style={{
             opacity: bootStage === "online" ? 1 : 0,
@@ -96,24 +80,17 @@ export function CameraFeed() {
           <HudBottomBar />
         </div>
 
-        {/* Voice button — only after boot completes */}
         {bootStage === "online" && (
           <div className="pointer-events-auto">
             <VoiceButton />
           </div>
         )}
-        {bootStage === "online" && (
-          <div className="pointer-events-auto absolute left-4 bottom-20 z-30">
-            <EngineSwitch />
-          </div>
-        )}
 
-        {/* ── DEBUG OVERLAY — remove after detection is working ─────── */}
         <div
-          className="absolute bottom-24 left-4 pointer-events-none z-50"
+          className="pointer-events-none absolute bottom-24 left-4 z-50"
           style={{ fontFamily: "Share Tech Mono, monospace" }}
         >
-          <div className="text-[9px] leading-relaxed space-y-0.5">
+          <div className="space-y-0.5 text-[9px] leading-relaxed">
             <div
               className={modelLoading ? "text-yellow-400" : "text-hud-cyan/30"}
             >
@@ -123,9 +100,7 @@ export function CameraFeed() {
               MDL_READY: {modelLoaded ? "YES" : "NO"}
             </div>
             <div className="text-hud-cyan/50">CAM_STATUS: {status}</div>
-            <div className="text-hud-cyan/50">
-              ENGINE: {detectionEngine.toUpperCase()}
-            </div>
+            <div className="text-hud-cyan/50">ENGINE: COCO</div>
             <div
               className={
                 detections.length > 0 ? "text-green-400" : "text-hud-cyan/50"
@@ -145,42 +120,37 @@ export function CameraFeed() {
             </div>
           </div>
         </div>
-        {/* ── END DEBUG ──────────────────────────────────────────────── */}
       </div>
 
-      {/* ── Layer 5 — Neural network loading overlay ───────────────────── */}
       <ModelLoadingOverlay />
 
-      {/* ── Layer 6 — Battery critical warning ────────────────────────── */}
       {batteryLow && (
         <div
-          className="absolute left-1/2 -translate-x-1/2 z-25 pointer-events-none"
+          className="pointer-events-none absolute left-1/2 z-25 -translate-x-1/2"
           style={{ top: "45%" }}
         >
           <div
-            className="text-red-400 font-orbitron text-xs tracking-widest animate-pulse-hud"
+            className="animate-pulse-hud text-xs font-orbitron tracking-widest text-red-400"
             style={{
               fontFamily: "Orbitron, sans-serif",
               textShadow: "0 0 10px red",
             }}
           >
-            ⚠ POWER_CRITICAL
+            POWER_CRITICAL
           </div>
         </div>
       )}
 
-      {/* ── Layer 7 — Conversation panel (slides in from right) ────────── */}
       <ConversationPanel />
 
-      {/* ── Layer 8 — Camera permission states ────────────────────────── */}
       {status === "requesting" && (
         <div className="absolute inset-0 z-30 flex items-center justify-center">
-          <div className="text-center space-y-4">
-            <div className="text-hud-cyan font-orbitron text-xl animate-pulse-hud">
+          <div className="space-y-4 text-center">
+            <div className="animate-pulse-hud font-orbitron text-xl text-hud-cyan">
               INITIALISING CAMERA
             </div>
             <div
-              className="text-hud-cyan/50 text-sm"
+              className="text-sm text-hud-cyan/50"
               style={{ fontFamily: "Share Tech Mono, monospace" }}
             >
               Requesting sensor access...
@@ -191,63 +161,24 @@ export function CameraFeed() {
 
       {(status === "denied" || status === "error") && (
         <div className="absolute inset-0 z-30 flex items-center justify-center p-8">
-          <div className="relative border border-hud-border bg-hud-panel p-6 max-w-sm w-full">
+          <div className="relative w-full max-w-sm border border-hud-border bg-hud-panel p-6">
             <CornerBrackets />
-            <div className="text-red-400 font-orbitron text-sm mb-2">
-              ⚠ SENSOR ERROR
+            <div className="mb-2 font-orbitron text-sm text-red-400">
+              SENSOR ERROR
             </div>
             <div
-              className="text-hud-cyan/70 text-xs leading-relaxed"
+              className="text-xs leading-relaxed text-hud-cyan/70"
               style={{ fontFamily: "Share Tech Mono, monospace" }}
             >
               {error}
             </div>
             <button
               onClick={() => window.location.reload()}
-              className="mt-4 w-full border border-hud-border text-hud-cyan font-orbitron text-xs py-2 hover:bg-hud-panel transition-colors pointer-events-auto"
+              className="mt-4 w-full border border-hud-border py-2 font-orbitron text-xs text-hud-cyan transition-colors hover:bg-hud-panel pointer-events-auto"
             >
               RETRY
             </button>
           </div>
-        </div>
-      )}
-    </div>
-  )
-}
-
-function EngineSwitch() {
-  const { detectionEngine, setDetectionEngine, yoloError } = useHudStore()
-
-  return (
-    <div
-      className="border border-hud-border bg-hud-panel px-2 py-1.5 max-w-[min(92vw,320px)]"
-      style={{ fontFamily: "Share Tech Mono, monospace" }}
-    >
-      <div className="flex items-center gap-1.5">
-        <button
-          onClick={() => setDetectionEngine("coco")}
-          className={`text-[9px] uppercase tracking-widest px-2 py-1 border transition-colors ${
-            detectionEngine === "coco"
-              ? "text-hud-cyan border-hud-cyan bg-hud-panel"
-              : "text-hud-cyan/45 border-hud-border"
-          }`}
-        >
-          COCO
-        </button>
-        <button
-          onClick={() => setDetectionEngine("yolo")}
-          className={`text-[9px] uppercase tracking-widest px-2 py-1 border transition-colors ${
-            detectionEngine === "yolo"
-              ? "text-hud-cyan border-hud-cyan bg-hud-panel"
-              : "text-hud-cyan/45 border-hud-border"
-          }`}
-        >
-          YOLO
-        </button>
-      </div>
-      {detectionEngine === "yolo" && yoloError && (
-        <div className="mt-1.5 text-[8px] text-amber-400/90 leading-snug border-t border-hud-border/40 pt-1.5">
-          {yoloError}
         </div>
       )}
     </div>

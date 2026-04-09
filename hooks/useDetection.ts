@@ -2,8 +2,7 @@
 
 import { useEffect, useRef } from "react"
 import { useHudStore } from "@/store/hudStore"
-import type { Detection } from "@/store/hudStore"
-import type { DetectionIntel } from "@/store/hudStore"
+import type { Detection, DetectionIntel } from "@/store/hudStore"
 import { updateTracker, clearTracker } from "@/lib/objectTracker"
 import type { TrackedObject } from "@/lib/objectTracker"
 import { drawDetections } from "@/lib/drawDetections"
@@ -11,6 +10,16 @@ import { drawDetections } from "@/lib/drawDetections"
 const BASE_LOOP_DELAY_MS = 120
 const LOW_POWER_DELAY_MS = 380
 const HIDDEN_TAB_DELAY_MS = 1500
+
+type CocoModel = {
+  detect(video: HTMLVideoElement): Promise<
+    Array<{ class: string; score: number; bbox: number[] }>
+  >
+}
+
+let tfReadyPromise: Promise<void> | null = null
+let cocoModelPromise: Promise<CocoModel> | null = null
+let cachedCocoModel: CocoModel | null = null
 
 function getAdaptiveFrameSkip(fps: number): number {
   if (fps === 0) return 3
@@ -32,7 +41,7 @@ function getAdaptiveLoopDelay(fps: number, lowPowerMode: boolean): number {
 function buildDetectionIntel(objects: TrackedObject[]): DetectionIntel {
   if (objects.length === 0) {
     return {
-      sceneRisk: "CLEAR" as const,
+      sceneRisk: "CLEAR",
       dominantClass: null,
       approachingCount: 0,
       stableTracks: 0,
@@ -66,11 +75,9 @@ function buildDetectionIntel(objects: TrackedObject[]): DetectionIntel {
     }
   }
 
-  const sceneRisk =
-    critical > 0 ? "CRITICAL" : elevated > 0 ? "ELEVATED" : "CLEAR"
-
   return {
-    sceneRisk,
+    sceneRisk:
+      critical > 0 ? "CRITICAL" : elevated > 0 ? "ELEVATED" : "CLEAR",
     dominantClass,
     approachingCount: approaching,
     stableTracks: stable,
@@ -79,14 +86,42 @@ function buildDetectionIntel(objects: TrackedObject[]): DetectionIntel {
   }
 }
 
+async function loadCocoModel(): Promise<CocoModel> {
+  if (cachedCocoModel) return cachedCocoModel
+
+  if (!tfReadyPromise) {
+    tfReadyPromise = import("@tensorflow/tfjs").then(async (tf) => {
+      await tf.ready()
+      console.log("[CORVUS] Backend:", tf.getBackend())
+    })
+  }
+
+  if (!cocoModelPromise) {
+    cocoModelPromise = (async () => {
+      console.log("[CORVUS] Loading TF.js...")
+      await tfReadyPromise
+
+      const cocoSsd = await import("@tensorflow-models/coco-ssd")
+      const model = (await cocoSsd.load({
+        base: "lite_mobilenet_v2",
+      })) as CocoModel
+
+      cachedCocoModel = model
+      console.log("[CORVUS] COCO-SSD ready")
+      return model
+    })()
+  }
+
+  return cocoModelPromise
+}
+
 export function useDetection(
   videoRef: React.RefObject<HTMLVideoElement | null>,
   canvasRef: React.RefObject<HTMLCanvasElement | null>,
   enabled: boolean,
 ) {
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const modelRef = useRef<any>(null)
+  const modelRef = useRef<CocoModel | null>(null)
   const running = useRef(false)
   const lastFps = useRef(performance.now())
   const fpsCount = useRef(0)
@@ -113,15 +148,7 @@ export function useDetection(
 
     async function init() {
       setModelLoading(true)
-      console.log("[CORVUS] Loading TF.js...")
-
-      const tf = await import("@tensorflow/tfjs")
-      await tf.ready()
-      console.log("[CORVUS] Backend:", tf.getBackend())
-
-      const cocoSsd = await import("@tensorflow-models/coco-ssd")
-      modelRef.current = await cocoSsd.load({ base: "lite_mobilenet_v2" })
-      console.log("[CORVUS] COCO-SSD loaded")
+      modelRef.current = await loadCocoModel()
 
       if (!cancelled) {
         setModelLoaded(true)
@@ -129,29 +156,18 @@ export function useDetection(
 
         setTimeout(async () => {
           if (cancelled) return
-          const v = videoRef.current
-          if (!v || v.readyState < 2 || !modelRef.current) return
+          const video = videoRef.current
+          if (!video || video.readyState < 2 || !modelRef.current) return
 
           try {
-            const preds = await modelRef.current.detect(v)
-            console.log(
-              "[CORVUS] Warmup:",
-              preds.length
-                ? preds
-                    .map(
-                      (p: { class: string; score: number }) =>
-                        `${p.class}(${Math.round(p.score * 100)}%)`,
-                    )
-                    .join(", ")
-                : "nothing detected - point at an object",
-            )
+            await modelRef.current.detect(video)
           } catch (err) {
             console.warn(
               "[CORVUS] Warmup failed:",
               err instanceof Error ? err.message : "unknown",
             )
           }
-        }, 1500)
+        }, 1200)
 
         scheduleNext(60)
       }
@@ -182,26 +198,27 @@ export function useDetection(
       const detectStartedAt = performance.now()
 
       try {
-        const preds: Array<{ class: string; score: number; bbox: number[] }> =
-          await modelRef.current.detect(video)
+        const preds = await modelRef.current.detect(video)
         if (cancelled) return
 
         const raw = preds
-          .filter((p) => p.score >= 0.35)
-          .map((p) => ({
-            class: p.class,
-            score: p.score,
-            bbox: p.bbox as [number, number, number, number],
+          .filter((pred) => pred.score >= 0.35)
+          .map((pred) => ({
+            class: pred.class,
+            score: pred.score,
+            bbox: pred.bbox as [number, number, number, number],
           }))
 
         const tracked = updateTracker(raw, video)
 
         setDetections(
-          tracked.map((t) => ({
-            class: t.class,
-            score: t.confidence,
-            bbox: t.bbox,
-          })) as Detection[],
+          tracked.map(
+            (trackedObject): Detection => ({
+              class: trackedObject.class,
+              score: trackedObject.confidence,
+              bbox: trackedObject.bbox,
+            }),
+          ),
         )
         setDetectionIntel(buildDetectionIntel(tracked))
         drawDetections(canvas, video, tracked)
@@ -245,6 +262,7 @@ export function useDetection(
     init().catch((err) => {
       console.error("[CORVUS] Init failed:", err)
       setModelLoading(false)
+      setModelLoaded(false)
     })
 
     return () => {
