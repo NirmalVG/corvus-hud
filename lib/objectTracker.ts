@@ -111,9 +111,12 @@ const trackers = new Map<string, { obj: TrackedObject; missing: number }>()
 let uid = 0
 
 const IOU_MATCH      = 0.25
-const MAX_MISSING    = 6
+const MAX_MISSING    = 2
 const HISTORY_LEN    = 16
 const FOCAL_LENGTH   = 600  // px baseline at 720p
+const BBOX_SMOOTHING = 0.35
+const METRE_SMOOTHING = 0.4
+const CONF_SMOOTHING = 0.45
 
 // ─── Public API ───────────────────────────────────────────────────────────────
 
@@ -150,24 +153,27 @@ export function updateTracker(
       // Update existing tracker
       matched.add(bestId)
       const prev    = trackers.get(bestId)!.obj
-      const history = [...prev.confidenceHistory, det.score].slice(-HISTORY_LEN)
-      const closing = closingSpeed(prev.metres, metres)
-      const approach = computeApproach(prev.metres, metres)
-      const threat  = assessThreat(det.class, cat, metres, approach, closing)
+      const smoothedBox = smoothBbox(prev.bbox, det.bbox)
+      const smoothedConfidence = smoothValue(prev.confidence, det.score, CONF_SMOOTHING)
+      const smoothedMetres = smoothValue(prev.metres, metres, METRE_SMOOTHING)
+      const history = [...prev.confidenceHistory, smoothedConfidence].slice(-HISTORY_LEN)
+      const closing = closingSpeed(prev.metres, smoothedMetres)
+      const approach = computeApproach(prev.metres, smoothedMetres)
+      const threat  = assessThreat(det.class, cat, smoothedMetres, approach, closing)
 
       const updated: TrackedObject = {
         ...prev,
-        bbox:              det.bbox,
-        confidence:        det.score,
+        bbox:              smoothedBox,
+        confidence:        smoothedConfidence,
         confidenceHistory: history,
         trend:             computeTrend(history),
-        metres,
+        metres:            smoothedMetres,
         prevMetres:        prev.metres,
         approach,
         closingSpeed:      closing,
-        screenZone:        computeZone(det.bbox, video),
-        compass:           computeCompass(det.bbox, video),
-        size:              computeSize(det.bbox, video),
+        screenZone:        computeZone(smoothedBox, video),
+        compass:           computeCompass(smoothedBox, video),
+        size:              computeSize(smoothedBox, video),
         threat:            threat.level,
         threatReason:      threat.reason,
         dwellSeconds:      Math.round((now - prev.firstSeen) / 1000),
@@ -217,8 +223,6 @@ export function updateTracker(
     entry.missing++
     if (entry.missing > MAX_MISSING) {
       trackers.delete(id)
-    } else {
-      result.push(entry.obj) // keep briefly to reduce flicker
     }
   }
 
@@ -389,4 +393,20 @@ function computeIoU(
   if (ix2 < ix1 || iy2 < iy1) return 0
   const inter = (ix2 - ix1) * (iy2 - iy1)
   return inter / (a[2] * a[3] + b[2] * b[3] - inter)
+}
+
+function smoothValue(previous: number, next: number, factor: number): number {
+  return previous + (next - previous) * factor
+}
+
+function smoothBbox(
+  previous: [number, number, number, number],
+  next: [number, number, number, number],
+): [number, number, number, number] {
+  return [
+    smoothValue(previous[0], next[0], BBOX_SMOOTHING),
+    smoothValue(previous[1], next[1], BBOX_SMOOTHING),
+    smoothValue(previous[2], next[2], BBOX_SMOOTHING),
+    smoothValue(previous[3], next[3], BBOX_SMOOTHING),
+  ]
 }
