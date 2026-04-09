@@ -2,6 +2,7 @@
 
 import { CornerBrackets } from "@/components/hud/CornerBrackets"
 import { BootStage } from "@/hooks/useBootSequence"
+import { useHudStore } from "@/store/hudStore"
 
 interface HudTopLeftProps {
   bootStage?: BootStage
@@ -14,8 +15,16 @@ export function HudTopLeft({
   status = "NOMINAL",
   signalStrength = 98,
 }: HudTopLeftProps) {
+  const { detectionIntel } = useHudStore()
   const visible =
     bootStage === "panels" || bootStage === "reticle" || bootStage === "online"
+
+  const riskColor =
+    detectionIntel.sceneRisk === "CRITICAL"
+      ? "text-red-400"
+      : detectionIntel.sceneRisk === "ELEVATED"
+        ? "text-amber-300"
+        : "text-emerald-300"
 
   return (
     <div
@@ -68,6 +77,14 @@ export function HudTopLeft({
         <span className="text-hud-cyan">●</span>
         Signal_Strength:{" "}
         <span className="text-hud-cyan">{signalStrength}%</span>
+      </div>
+
+      <div className="mt-1 text-[9px] sm:text-[10px] text-hud-cyan/65 uppercase tracking-widest">
+        AI_Risk: <span className={riskColor}>{detectionIntel.sceneRisk}</span>
+      </div>
+      <div className="text-[9px] sm:text-[10px] text-hud-cyan/55 uppercase tracking-widest truncate">
+        Focus: {detectionIntel.dominantClass ?? "none"} | stable{" "}
+        {detectionIntel.stableTracks} | approach {detectionIntel.approachingCount}
       </div>
     </div>
   )

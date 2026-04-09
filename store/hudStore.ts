@@ -22,11 +22,21 @@ export interface BatteryData {
 }
 
 export type VoiceState = "idle" | "listening" | "processing" | "speaking"
+export type DetectionEngine = "coco" | "yolo"
 
 export interface ConversationMessage {
   role: "user" | "corvus"
   text: string
   timestamp: number
+}
+
+export interface DetectionIntel {
+  sceneRisk: "CLEAR" | "ELEVATED" | "CRITICAL"
+  dominantClass: string | null
+  approachingCount: number
+  stableTracks: number
+  avgConfidence: number
+  activeTracks: number
 }
 
 // ─── State Interface ──────────────────────────────────────────────────────────
@@ -47,6 +57,7 @@ interface HudState {
 
   // ── Performance ────────────────────────────────────────────────────────────
   lowPowerMode: boolean
+  detectionEngine: DetectionEngine
 
   // ── Voice ──────────────────────────────────────────────────────────────────
   voiceState: VoiceState
@@ -56,6 +67,9 @@ interface HudState {
   // ── Conversation ───────────────────────────────────────────────────────────
   conversationHistory: ConversationMessage[]
   conversationOpen: boolean
+  detectionIntel: DetectionIntel
+  /** Set when YOLO mode cannot run (missing URL, blocked host, health fail). Cleared on COCO or success. */
+  yoloError: string | null
 
   // ── Actions : Detection ────────────────────────────────────────────────────
   setDetections: (detections: Detection[]) => void
@@ -72,6 +86,7 @@ interface HudState {
 
   // ── Actions : Performance ──────────────────────────────────────────────────
   toggleLowPowerMode: () => void
+  setDetectionEngine: (engine: DetectionEngine) => void
 
   // ── Actions : Voice ────────────────────────────────────────────────────────
   setVoiceState: (state: VoiceState) => void
@@ -82,6 +97,8 @@ interface HudState {
   addMessage: (message: ConversationMessage) => void
   clearConversation: () => void
   setConversationOpen: (open: boolean) => void
+  setDetectionIntel: (intel: DetectionIntel) => void
+  setYoloError: (message: string | null) => void
 }
 
 // ─── Store ────────────────────────────────────────────────────────────────────
@@ -104,6 +121,7 @@ export const useHudStore = create<HudState>()(
 
   // ── Performance ────────────────────────────────────────────────────────────
   lowPowerMode: false,
+  detectionEngine: "coco",
 
   // ── Voice ──────────────────────────────────────────────────────────────────
   voiceState: "idle",
@@ -113,6 +131,15 @@ export const useHudStore = create<HudState>()(
   // ── Conversation ───────────────────────────────────────────────────────────
   conversationHistory: [],
   conversationOpen: false,
+  detectionIntel: {
+    sceneRisk: "CLEAR",
+    dominantClass: null,
+    approachingCount: 0,
+    stableTracks: 0,
+    avgConfidence: 0,
+    activeTracks: 0,
+  },
+  yoloError: null,
 
   // ── Actions : Detection ────────────────────────────────────────────────────
   setDetections: (detections) => set({ detections }),
@@ -130,6 +157,14 @@ export const useHudStore = create<HudState>()(
   // ── Actions : Performance ──────────────────────────────────────────────────
   toggleLowPowerMode: () =>
     set((state) => ({ lowPowerMode: !state.lowPowerMode })),
+  setDetectionEngine: (detectionEngine) =>
+    set({
+      detectionEngine,
+      modelLoaded: false,
+      modelLoading: false,
+      detections: [],
+      yoloError: null,
+    }),
 
   // ── Actions : Voice ────────────────────────────────────────────────────────
   setVoiceState: (voiceState) => set({ voiceState }),
@@ -153,6 +188,8 @@ export const useHudStore = create<HudState>()(
         }),
 
       setConversationOpen: (conversationOpen) => set({ conversationOpen }),
+      setDetectionIntel: (detectionIntel) => set({ detectionIntel }),
+      setYoloError: (yoloError) => set({ yoloError }),
     }),
     {
       name: "corvus-hud-store",

@@ -21,17 +21,21 @@ import { useYoloDetection } from "@/hooks/useYoloDetection"
 
 export function CameraFeed() {
   const { videoRef, canvasRef, status, error } = useCamera()
-  useDetection(videoRef, canvasRef, status === "active")
+  const { detectionEngine, detections, battery, modelLoaded, modelLoading } =
+    useHudStore()
+  useDetection(videoRef, canvasRef, status === "active" && detectionEngine === "coco")
+  useYoloDetection(
+    videoRef,
+    canvasRef,
+    status === "active" && detectionEngine === "yolo",
+  )
   useLocation()
   useCompass()
   useBattery()
 
-  const { detections, battery, modelLoaded, modelLoading } = useHudStore()
   const bootStage = useBootSequence(status === "active")
   const glitching = useGlitch()
   const batteryLow = (battery?.level ?? 100) < 20
-
-  useYoloDetection(videoRef, status === "active")
 
   return (
     <div
@@ -98,6 +102,11 @@ export function CameraFeed() {
             <VoiceButton />
           </div>
         )}
+        {bootStage === "online" && (
+          <div className="pointer-events-auto absolute left-4 bottom-20 z-30">
+            <EngineSwitch />
+          </div>
+        )}
 
         {/* ── DEBUG OVERLAY — remove after detection is working ─────── */}
         <div
@@ -114,6 +123,9 @@ export function CameraFeed() {
               MDL_READY: {modelLoaded ? "YES" : "NO"}
             </div>
             <div className="text-hud-cyan/50">CAM_STATUS: {status}</div>
+            <div className="text-hud-cyan/50">
+              ENGINE: {detectionEngine.toUpperCase()}
+            </div>
             <div
               className={
                 detections.length > 0 ? "text-green-400" : "text-hud-cyan/50"
@@ -197,6 +209,45 @@ export function CameraFeed() {
               RETRY
             </button>
           </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function EngineSwitch() {
+  const { detectionEngine, setDetectionEngine, yoloError } = useHudStore()
+
+  return (
+    <div
+      className="border border-hud-border bg-hud-panel px-2 py-1.5 max-w-[min(92vw,320px)]"
+      style={{ fontFamily: "Share Tech Mono, monospace" }}
+    >
+      <div className="flex items-center gap-1.5">
+        <button
+          onClick={() => setDetectionEngine("coco")}
+          className={`text-[9px] uppercase tracking-widest px-2 py-1 border transition-colors ${
+            detectionEngine === "coco"
+              ? "text-hud-cyan border-hud-cyan bg-hud-panel"
+              : "text-hud-cyan/45 border-hud-border"
+          }`}
+        >
+          COCO
+        </button>
+        <button
+          onClick={() => setDetectionEngine("yolo")}
+          className={`text-[9px] uppercase tracking-widest px-2 py-1 border transition-colors ${
+            detectionEngine === "yolo"
+              ? "text-hud-cyan border-hud-cyan bg-hud-panel"
+              : "text-hud-cyan/45 border-hud-border"
+          }`}
+        >
+          YOLO
+        </button>
+      </div>
+      {detectionEngine === "yolo" && yoloError && (
+        <div className="mt-1.5 text-[8px] text-amber-400/90 leading-snug border-t border-hud-border/40 pt-1.5">
+          {yoloError}
         </div>
       )}
     </div>

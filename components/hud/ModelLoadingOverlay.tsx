@@ -3,7 +3,7 @@
 import { useHudStore } from "@/store/hudStore"
 
 export function ModelLoadingOverlay() {
-  const { modelLoading, modelLoaded } = useHudStore()
+  const { modelLoading, modelLoaded, detectionEngine } = useHudStore()
 
   if (!modelLoading && modelLoaded) return null
   if (!modelLoading && !modelLoaded) return null
@@ -24,7 +24,7 @@ export function ModelLoadingOverlay() {
           className="text-hud-cyan/50 text-[10px] tracking-widest"
           style={{ fontFamily: "Share Tech Mono, monospace" }}
         >
-          COCO-SSD · MOBILENET_V2_LITE
+          {detectionEngine === "yolo" ? "YOLOv8n · BACKEND LINK" : "COCO-SSD · MOBILENET_V2_LITE"}
         </div>
       </div>
     </div>

@@ -23,7 +23,7 @@ function useLocalTime() {
 }
 
 export function HudBottomBar() {
-  const { fps, detections, battery } = useHudStore()
+  const { fps, detections, battery, detectionIntel } = useHudStore()
   const time = useLocalTime()
 
   const batteryLevel = battery?.level ?? 88
@@ -85,7 +85,7 @@ export function HudBottomBar() {
           />
         </svg>
       ),
-      label: `OBJ_${String(objectCount).padStart(2, "0")}`,
+      label: `OBJ_${String(objectCount).padStart(2, "0")} CNF_${detectionIntel.avgConfidence}%`,
       active: true,
     },
     {
